@@ -1,49 +1,50 @@
-name: Build Release Binaries
+name: Build and Release
 
 on:
   release:
     types:
       - created
 
-permissions:
-  contents: write
-
 jobs:
   build:
-    name: Build Binaries
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        directory: ["alliteration"]
-
     steps:
-      # Checkout the repository
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      # Set up Go environment
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: "1.23"
 
-      # Install dependencies from the root-level go.mod
       - name: Install Dependencies
         run: go mod tidy
 
-      # Build the binary for Windows
-      - name: Build Binary
+      - name: Build Binaries
         run: |
-          cd ${{ matrix.directory }}
-          GOOS=windows GOARCH=amd64 go build -o ../${{ matrix.directory }}-${{ github.event.release.tag_name }}.exe
-          cd -
+          mkdir -p ./bin
+          # Build all Go binaries and output them into ./bin/
+          GOOS=windows GOARCH=amd64 go build -o ./bin/ ./...
 
-      # Upload the binary to the release
-      - name: Upload Release Binary
-        uses: actions/upload-release-asset@v1
+      - name: Collect Binaries
+        id: collect_binaries
+        run: |
+          # Rename all .exe files in ./bin/ to include the version (release tag)
+          for bin in ./bin/*.exe; do
+            # Get the base name of the binary (e.g., 'alliteration' from 'alliteration.exe')
+            base_name=$(basename "$bin" .exe)
+            # Rename the binary to include the release version (tag)
+            mv "$bin" "./bin/${base_name}-${{ github.event.release.tag_name }}.exe"
+          done
+          
+          # Collect all renamed .exe files from ./bin/
+          binary_files=$(find ./bin -name "*.exe" -print | tr '\n' ' ')
+          echo "binary_files=$binary_files" >> $GITHUB_ENV
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ matrix.directory }}-${{ github.event.release.tag_name }}.exe
-          asset_name: ${{ matrix.directory }}-${{ github.event.release.tag_name }}.exe
-          asset_content_type: application/octet-stream
+          files: ${{ env.binary_files }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
