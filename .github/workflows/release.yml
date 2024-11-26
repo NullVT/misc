@@ -1,0 +1,64 @@
+name: Build Release Binaries
+
+on:
+  release:
+    types:
+      - created
+
+jobs:
+  discover:
+    name: Discover Subdirectories
+    runs-on: ubuntu-latest
+
+    outputs:
+      directories: ${{ steps.get_dirs.outputs.directories }}
+
+    steps:
+      # Checkout the repository
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Discover subdirectories
+      - name: Get Subdirectories
+        id: get_dirs
+        run: echo "::set-output name=directories::$(find . -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | jq -R -s -c 'split(\"\\n\")[:-1]')"
+
+  build:
+    name: Build ${{ matrix.directory }}
+    needs: discover
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        directory: ${{ fromJson(needs.discover.outputs.directories) }}
+
+    steps:
+      # Checkout the repository
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Set up Go environment
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20"
+
+      # Install dependencies from the root-level go.mod
+      - name: Install Dependencies
+        run: go mod tidy
+
+      # Build the binary for Windows
+      - name: Build Binary
+        run: |
+          cd ${{ matrix.directory }}
+          GOOS=windows GOARCH=amd64 go build -o ../${{ matrix.directory }}-${{ github.event.release.tag_name }}.exe
+          cd -
+
+      # Upload the binary to the release
+      - name: Upload Release Binary
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ matrix.directory }}-${{ github.event.release.tag_name }}.exe
+          asset_name: ${{ matrix.directory }}-${{ github.event.release.tag_name }}.exe
+          asset_content_type: application/octet-stream
